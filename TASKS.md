@@ -176,6 +176,252 @@ are allowed to claim, and discovering it on Thursday would be fatal.
 
 ---
 
+## T6 — Manual fare log
+**Start Tuesday morning · two people · no programming · ~2 hours**
+
+Owners: _______________ and _______________
+
+Collect fares **by hand** today: the same 6 city pairs, the same 5 booking
+windows, typed into `data/manual_fares.csv`. Sixty lookups. Use the airline
+websites like an ordinary traveller would.
+
+**Time yourselves.** Write down the minutes it took.
+
+Columns, exactly these, so `validate.py` can read it:
+
+```
+origin,destination,departure_date,collection_date,advance_window_days,total_fare_inr,carrier
+```
+
+**Why this matters more than it looks.** It gives us three things:
+
+- A validation set. "Our scraped fares match human-collected fares on the same
+  day" is the answer to the question every judge asks — *how do you know your
+  scraper is right?*
+- A real number for slide 3. Right now that slide claims manual collection
+  cannot keep up. After today it can say "two people took 90 minutes to collect
+  one day's basket by hand; the scraper does it in four minutes."
+- You will have felt why manual collection fails, which means you can talk
+  about it.
+
+Do it today, because it only works as a comparison if it happens on the same
+day the scraper runs.
+
+---
+
+# Code tasks
+
+Small, self-contained, and each one closes a requirement the problem statement
+asks for and we do not currently meet. All of them read
+`data/fares_export.csv` — no SQL, no database, nothing to install beyond pandas.
+
+Every one comes with starter code that runs. You are editing something that
+works, not facing a blank file.
+
+**Put your file where the task says. Do not touch anything inside
+`fareindex/`** — importing from it is fine, editing it is not.
+
+---
+
+## C1 — Outlier flagging
+**Due Wednesday 22:00 · ~2 hours · closes a stated PS requirement**
+
+Owner: _______________
+
+The PS requires the cleaning pipeline to remove outliers. A scraper sometimes
+catches a business-class fare or a mispriced seat, and one ₹90,000 row in a cell
+of ₹5,000 fares wrecks any average computed over it.
+
+**Produce `clean/outliers.py`** which writes `data/fares_flagged.csv` — the same
+rows plus an `is_outlier` column — and prints how many it flagged.
+
+The rule: flag any fare more than 3 median absolute deviations from the median
+of its (route, window) group. A rule you can state and defend beats a clever
+one.
+
+```python
+import pandas as pd
+
+df = pd.read_csv("data/fares_export.csv")
+df = df[df.source_portal != "serpapi"]
+
+def flag(group):
+    median = group.total_fare_inr.median()
+    mad = (group.total_fare_inr - median).abs().median()
+    if len(group) < 5 or mad == 0:
+        group["is_outlier"] = False        # too few fares to judge
+    else:
+        group["is_outlier"] = (group.total_fare_inr - median).abs() > 3 * mad
+    return group
+
+groups = ["origin", "destination", "advance_window_days"]
+out = df.groupby(groups, group_keys=False).apply(flag)
+out.to_csv("data/fares_flagged.csv", index=False)
+print(f"flagged {out.is_outlier.sum()} of {len(out)} fares")
+```
+
+**Note why the grouping is what it is** — a judge may well ask. We pool across
+collection days rather than looking at one day in isolation, because a single
+(route, window, day) cell holds only about three fares and you cannot measure
+spread from three numbers. Pooling gives roughly nine, which is enough. That is
+also why the `len(group) < 5` guard is there: with too few observations the rule
+either flags nothing or flags everything.
+
+**Then go further:** print *which* fares were flagged and why, so we can show a
+judge the rule is removing business-class seats and mispricings rather than
+deleting real data.
+
+---
+
+## C2 — Coverage report
+**Due Wednesday 22:00 · ~2 hours · closes a stated PS requirement**
+
+Owner: _______________
+
+The PS requires the pipeline to handle missing values. Step one is knowing which
+values are missing. We expect 12 routes × 5 windows on every collection day —
+which cells did we actually get?
+
+**Produce `clean/coverage.py`**, writing `data/missing_cells.csv` and printing a
+completeness percentage.
+
+```python
+import sys
+import pandas as pd
+sys.path.insert(0, ".")
+from fareindex import config          # read it, never edit it
+
+df = pd.read_csv("data/fares_export.csv")
+days = sorted(df.collection_date.unique())
+
+expected = [
+    (o, d, w, day)
+    for (o, d) in config.ROUTES
+    for w in config.WINDOWS
+    for day in days
+]
+got = set(zip(df.origin, df.destination,
+              df.advance_window_days, df.collection_date))
+missing = [cell for cell in expected if cell not in got]
+
+print(f"{len(expected) - len(missing)}/{len(expected)} cells filled "
+      f"({100 * (1 - len(missing) / len(expected)):.1f}%)")
+pd.DataFrame(missing, columns=["origin", "destination",
+                               "advance_window_days", "collection_date"]
+             ).to_csv("data/missing_cells.csv", index=False)
+```
+
+A completeness figure is a good slide on its own — it is the kind of number a
+statistics ministry cares about far more than a pretty chart.
+
+---
+
+## C3 — Scraper validation
+**Due Thursday 12:00 · ~2 hours · needs T6 to have run**
+
+Owner: _______________
+
+Compare what the scraper collected against what the humans collected on the same
+day. This produces the single most useful sentence in the presentation.
+
+**Produce `clean/validate.py`**, writing `data/validation.csv` and printing the
+agreement figures.
+
+```python
+import pandas as pd
+
+auto = pd.read_csv("data/fares_export.csv")
+auto = auto[auto.source_portal != "serpapi"]
+manual = pd.read_csv("data/manual_fares.csv")
+
+key = ["origin", "destination", "advance_window_days", "collection_date"]
+a = auto.groupby(key).total_fare_inr.min().rename("scraped")
+m = manual.groupby(key).total_fare_inr.min().rename("human")
+
+both = pd.concat([a, m], axis=1).dropna()
+both["diff_pct"] = 100 * (both.scraped - both.human).abs() / both.human
+
+print(f"{len(both)} cells compared")
+print(f"mean absolute difference: {both.diff_pct.mean():.1f}%")
+print(f"within 5%: {(both.diff_pct <= 5).mean() * 100:.0f}% of cells")
+both.to_csv("data/validation.csv")
+```
+
+If the agreement is poor, that is a **finding, not a failure** — report it
+immediately. It means the scraper is picking a different fare than a human
+would, and we would much rather know that on Thursday morning than be told it
+by a judge.
+
+---
+
+## C4 — Charts for the slide deck
+**Due Wednesday 22:00 · ~3 hours**
+
+Owner: _______________
+
+The slides need images and should not wait on the dashboard. Separate job,
+separate person, no dependency.
+
+**Produce `charts/make_charts.py`** writing three PNGs into `docs/charts/`.
+
+```python
+import os
+import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+os.makedirs("docs/charts", exist_ok=True)
+df = pd.read_csv("data/fares_export.csv")
+df = df[df.source_portal != "serpapi"]
+
+# 1. Lead-time elasticity: the chart that proves the whole method
+curve = df.groupby("advance_window_days").total_fare_inr.min()
+ax = curve.plot(marker="o")
+ax.set_xlabel("days booked before departure")
+ax.set_ylabel("cheapest fare (INR)")
+ax.set_title("Fare against advance-purchase window")
+plt.tight_layout()
+plt.savefig("docs/charts/lead_time.png", dpi=150)
+plt.close()
+```
+
+Two more: cheapest fare per route as a bar chart, and fares over collection date
+as a line. Large fonts — these get projected, and a chart nobody can read from
+the back of the room is worth nothing.
+
+---
+
+## C5 — Weekly and monthly index
+**Due Thursday 12:00 · ~1 hour · closes a requirement we nearly missed**
+
+Owner: _______________
+
+The PS asks for the index at **daily, weekly and monthly** frequencies. We had
+only planned the daily one.
+
+**Produce `index/frequencies.py`** reading `data/apix_daily.csv` (produced by
+the index module) and writing `data/apix_weekly.csv` and `data/apix_monthly.csv`.
+
+```python
+import pandas as pd
+
+daily = pd.read_csv("data/apix_daily.csv", parse_dates=["date"]).set_index("date")
+daily.resample("W").mean().to_csv("data/apix_weekly.csv")
+daily.resample("MS").mean().to_csv("data/apix_monthly.csv")
+print("wrote weekly and monthly series")
+```
+
+That is nearly the whole task. Spend the rest of the hour making it behave
+sensibly when there are only three days of data — the weekly figure is one
+partial week, and it should be labelled as partial rather than presented as a
+full week.
+
+**Not blocked:** if `apix_daily.csv` does not exist yet, make one up with three
+columns and ten rows and build against that.
+
+---
+
 ## Working in this repo
 
 You do not need to know git well. Four commands cover everything:
