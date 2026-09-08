@@ -1,1 +1,10 @@
+# collector
 requests>=2.31
+
+# index + dashboard
+pandas>=2.0
+streamlit>=1.30
+altair>=5.0
+
+# only needed for the browser-based source (indigo_browser)
+# playwright>=1.40
