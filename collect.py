@@ -30,6 +30,15 @@ def build_source(name: str) -> FareSource:
     if name == "serpapi":
         from fareindex.sources.serpapi import SerpApiSource
         return SerpApiSource()
+    if name == "akasa":
+        from fareindex.sources.akasa import AkasaSource
+        return AkasaSource()
+    if name == "indigo_browser":
+        from fareindex.sources.indigo_browser import IndigoBrowserSource
+        return IndigoBrowserSource()
+    if name == "indigo":
+        from fareindex.sources.indigo import IndigoSource
+        return IndigoSource()
     if name == "airline_web":
         from fareindex.sources.airline_web import AirlineWebSource
         return AirlineWebSource()

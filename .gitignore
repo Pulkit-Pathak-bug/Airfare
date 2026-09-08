@@ -20,3 +20,14 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+
+# IndiGo credentials. Short-lived, and never committed.
+.indigo_token
+.indigo_cookie
+
+# Akasa credentials
+.akasa_token
+
+# Air India credentials
+.airindia_token
+.airindia_cookie

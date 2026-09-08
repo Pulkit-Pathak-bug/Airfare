@@ -43,8 +43,8 @@ from ..model import FareOffer
 from .base import FareSource, FareSourceError
 
 USER_AGENT = (
-    "MIT-Bengaluru-SIH26056-research/0.1 "
-    "(academic airfare price index; contact: pulkitpathak1000@gmail.com)"
+    "SIH26056-research/0.1 "
+    "(academic airfare price index; contact: <add team contact email>)"
 )
 
 
