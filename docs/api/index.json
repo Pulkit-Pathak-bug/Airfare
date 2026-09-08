@@ -1,0 +1,33 @@
+{
+  "index": "APIx \u2014 Real-time Airfare Price Index (prototype)",
+  "methodology": {
+    "base_period": "2026-09-08",
+    "base_value": 100.0,
+    "basket_cells": 57,
+    "weight_source": "equal (route_weights.csv absent)",
+    "collection_days": 1,
+    "cells_carried_forward": 0,
+    "formula": "Laspeyres, fixed base-period weights, cheapest fare per cell"
+  },
+  "daily": [
+    {
+      "date": "2026-09-08",
+      "value": 100.0,
+      "cells": 57
+    }
+  ],
+  "weekly": [
+    {
+      "week_ending": "2026-09-13",
+      "value": 100.0,
+      "partial": true
+    }
+  ],
+  "monthly": [
+    {
+      "month": "2026-09-01",
+      "value": 100.0,
+      "partial": true
+    }
+  ]
+}
