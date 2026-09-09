@@ -4,30 +4,146 @@
     "base_period": "2026-09-08",
     "base_value": 100.0,
     "basket_cells": 57,
-    "weight_source": "equal (route_weights.csv absent)",
-    "collection_days": 1,
-    "cells_carried_forward": 0,
-    "formula": "Laspeyres, fixed base-period weights, cheapest fare per cell"
+    "routes_short_of_full_windows": {
+      "DEL-MAA": 3,
+      "MAA-DEL": 4
+    },
+    "weight_source": "DGCA passenger traffic",
+    "collection_days": 2,
+    "cells_carried_forward": 3,
+    "formula": "Laspeyres, fixed base-period weights, cheapest fare per cell",
+    "series": "headline",
+    "sources": [
+      "akasa"
+    ],
+    "sources_excluded": {
+      "spicejet": {
+        "first_collected": "2026-09-10",
+        "reason": "started after the base period; including it would change basket composition, not price"
+      }
+    }
   },
   "daily": [
     {
       "date": "2026-09-08",
       "value": 100.0,
       "cells": 57
+    },
+    {
+      "date": "2026-09-09",
+      "value": 99.97,
+      "cells": 57
     }
   ],
   "weekly": [
     {
       "week_ending": "2026-09-13",
-      "value": 100.0,
+      "value": 99.98,
       "partial": true
     }
   ],
   "monthly": [
     {
       "month": "2026-09-01",
-      "value": 100.0,
+      "value": 99.98,
       "partial": true
     }
-  ]
+  ],
+  "series": {
+    "all-sources": {
+      "methodology": {
+        "base_period": "2026-09-10",
+        "base_value": 100.0,
+        "basket_cells": 17,
+        "routes_short_of_full_windows": {
+          "BLR-BOM": 1,
+          "BLR-DEL": 1,
+          "BOM-BLR": 1,
+          "BOM-DEL": 4,
+          "CCU-DEL": 2,
+          "DEL-BLR": 1,
+          "DEL-CCU": 2
+        },
+        "weight_source": "DGCA passenger traffic",
+        "collection_days": 1,
+        "cells_carried_forward": 0,
+        "formula": "Laspeyres, fixed base-period weights, cheapest fare per cell",
+        "series": "all-sources",
+        "sources": [
+          "akasa",
+          "spicejet"
+        ],
+        "note": "Re-based to 2026-09-10, the first date on which every source was collecting. Not comparable with the headline series before that date."
+      },
+      "daily": [
+        {
+          "date": "2026-09-10",
+          "value": 100.0,
+          "cells": 17
+        }
+      ]
+    },
+    "akasa": {
+      "methodology": {
+        "base_period": "2026-09-08",
+        "base_value": 100.0,
+        "basket_cells": 57,
+        "routes_short_of_full_windows": {
+          "DEL-MAA": 3,
+          "MAA-DEL": 4
+        },
+        "weight_source": "DGCA passenger traffic",
+        "collection_days": 2,
+        "cells_carried_forward": 3,
+        "formula": "Laspeyres, fixed base-period weights, cheapest fare per cell",
+        "series": "akasa",
+        "sources": [
+          "akasa"
+        ]
+      },
+      "daily": [
+        {
+          "date": "2026-09-08",
+          "value": 100.0,
+          "cells": 57
+        },
+        {
+          "date": "2026-09-09",
+          "value": 99.97,
+          "cells": 57
+        }
+      ]
+    },
+    "spicejet": {
+      "methodology": {
+        "base_period": "2026-09-10",
+        "base_value": 100.0,
+        "basket_cells": 17,
+        "routes_short_of_full_windows": {
+          "BLR-BOM": 1,
+          "BLR-DEL": 1,
+          "BOM-BLR": 1,
+          "BOM-DEL": 4,
+          "CCU-DEL": 2,
+          "DEL-BLR": 1,
+          "DEL-CCU": 2
+        },
+        "weight_source": "DGCA passenger traffic",
+        "collection_days": 1,
+        "cells_carried_forward": 0,
+        "formula": "Laspeyres, fixed base-period weights, cheapest fare per cell",
+        "series": "spicejet",
+        "sources": [
+          "spicejet"
+        ]
+      },
+      "daily": [
+        {
+          "date": "2026-09-10",
+          "value": 100.0,
+          "cells": 17
+        }
+      ]
+    }
+  }
 }

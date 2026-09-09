@@ -49,15 +49,31 @@ class AkasaSource(FareSource):
     daily_request_budget = 400
     default_carrier = "QP"
 
-    def __init__(self, timeout: int = 30):
-        token = IndigoSource._credential("AKASA_TOKEN", ".akasa_token")
-        if not token:
-            raise FareSourceError(
-                "No token. Either set AKASA_TOKEN, or paste the "
-                "'authorization' header value into a file named "
-                ".akasa_token in this folder."
-            )
+    @staticmethod
+    def _obtain_token(force: bool = False) -> str:
+        """Env var, then cached file, then mint one with a browser.
 
+        The manual paths stay first so a hand-captured token always wins —
+        useful when debugging. The broker is the fallback that makes a
+        scheduled daily run possible without a human in the loop.
+        """
+        if not force:
+            token = IndigoSource._credential("AKASA_TOKEN", ".akasa_token")
+            if token:
+                return token
+        from ..token_broker import TokenUnavailable, get
+        try:
+            return get("akasa", force=force)
+        except TokenUnavailable as exc:
+            raise FareSourceError(
+                f"Could not obtain an Akasa token automatically: {exc}\n"
+                f"Fall back to pasting the 'authorization' header from "
+                f"DevTools into .akasa_token"
+            ) from exc
+
+    def __init__(self, timeout: int = 30):
+        token = self._obtain_token()
+        self._token_refreshed = False
         self._timeout = timeout
         self._session = requests.Session()
         self._session.headers.update({
@@ -131,11 +147,23 @@ class AkasaSource(FareSource):
             time.sleep(REQUEST_DELAY_SECONDS)
 
         if response.status_code in (401, 403):
+            # Self-heal: mint a fresh token and retry this cell once. A
+            # 60-cell run outlives most token lifetimes, so expiry
+            # mid-collection is normal rather than exceptional.
+            if not self._token_refreshed:
+                self._token_refreshed = True
+                print(f"[akasa] {response.status_code} — token expired "
+                      f"mid-run, minting a fresh one")
+                try:
+                    self._session.headers["authorization"] = \
+                        self._obtain_token(force=True)
+                except FareSourceError:
+                    raise
+                return self.fetch(origin, destination, departure_date)
             raise FareSourceError(
-                f"akasa returned {response.status_code} — the token is "
-                f"probably stale. Search on akasaair.com, copy the "
-                f"authorization header off the availability/search "
-                f"request, and put it in .akasa_token"
+                f"akasa returned {response.status_code} even after "
+                f"refreshing the token. Capture one by hand into "
+                f".akasa_token and check the API has not changed."
             )
         try:
             response.raise_for_status()

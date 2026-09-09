@@ -31,3 +31,19 @@ Thumbs.db
 # Air India credentials
 .airindia_token
 .airindia_cookie
+
+# SpiceJet credentials
+.spicejet_token
+
+# Catch-all for the same pattern, so a credential file added for a new
+# carrier is ignored by default rather than by remembering to add it here.
+.*_token
+.*_cookie
+
+# Generated documents. Rebuilt from the data store by make_*.py, so the
+# PDFs are outputs, not source — and the internal ones (defence pack,
+# code walkthrough, checklist) are team material rather than deliverables.
+# The generators stay tracked: they are what proves the figures are
+# computed rather than typed.
+docs/*.pdf
+docs/*.html

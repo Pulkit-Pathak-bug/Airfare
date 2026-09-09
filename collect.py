@@ -30,6 +30,12 @@ def build_source(name: str) -> FareSource:
     if name == "serpapi":
         from fareindex.sources.serpapi import SerpApiSource
         return SerpApiSource()
+    if name == "spicejet_browser":
+        from fareindex.sources.spicejet_browser import SpiceJetBrowserSource
+        return SpiceJetBrowserSource()
+    if name == "spicejet":
+        from fareindex.sources.spicejet import SpiceJetSource
+        return SpiceJetSource()
     if name == "akasa":
         from fareindex.sources.akasa import AkasaSource
         return AkasaSource()
@@ -97,8 +103,22 @@ def run(source_name: str, thin: bool, db_path: str, limit: int | None) -> int:
                               origin, destination, window, exc)
                 continue
 
+            # Writing is inside its own guard for the same reason fetching
+            # is. write_offers() calls validate() on every offer, which
+            # raises on a fare a portal can legitimately send — a negative
+            # fee component, say. Left unguarded, one such fare from cell 6
+            # would abort the process and lose the remaining 54 cells, and
+            # a collection date cannot be recollected tomorrow.
+            try:
+                n = store.write_offers(conn, offers, run_id)
+            except Exception as exc:                    # noqa: BLE001
+                failed += 1
+                observe("error", detail=f"write failed: {exc!r}"[:500])
+                log.error("FAIL %s-%s T+%-3d  could not store %d offers: %s",
+                          origin, destination, window, len(offers), exc)
+                continue
+
             ok += 1
-            n = store.write_offers(conn, offers, run_id)
             written += n
             # An empty cell is data: sold out, cancelled, or no service.
             observe("ok" if offers else "empty", len(offers))

@@ -66,6 +66,9 @@ def build(name: str):
     if name == "akasa":
         from fareindex.sources.akasa import AkasaSource, ENDPOINT
         return AkasaSource(), ENDPOINT
+    if name == "spicejet":
+        from fareindex.sources.spicejet import ENDPOINT, SpiceJetSource
+        return SpiceJetSource(), ENDPOINT
     if name == "airindia":
         from fareindex.sources.airindia import AirIndiaSource, ENDPOINT
         return AirIndiaSource(), ENDPOINT
@@ -90,9 +93,13 @@ def main() -> int:
 
     print(f"POST {endpoint}")
     print(f"     {origin}-{destination} departing {departure}")
+    extra = {}
+    if hasattr(source, "_referer"):
+        extra["referer"] = source._referer(origin, destination, departure)
     response = source._session.post(
         endpoint,
         data=json.dumps(source._payload(origin, destination, departure)),
+        headers=extra or None,
         timeout=30,
     )
     print(f"     HTTP {response.status_code}, {len(response.content)} bytes\n")

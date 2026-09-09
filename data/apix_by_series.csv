@@ -1,0 +1,5 @@
+series,date,apix,cells,carried_forward,base_period
+all-sources,2026-09-10,100.0,17,0,2026-09-10
+akasa,2026-09-08,100.0,57,0,2026-09-08
+akasa,2026-09-09,99.97,57,3,2026-09-08
+spicejet,2026-09-10,100.0,17,0,2026-09-10
