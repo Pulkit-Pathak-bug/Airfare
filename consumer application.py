@@ -61,7 +61,7 @@ def GUI(win: ft.Page):
     win.bgcolor=ft.Colors.TRANSPARENT
     win.decoration=ft.BoxDecoration(
         image=ft.DecorationImage(
-        src="G:/SIH/frontend/bg2.png",
+        src="bg2.png",
         fit=ft.BoxFit.COVER,
         )
     )
@@ -103,7 +103,7 @@ def GUI(win: ft.Page):
 
 
     symbol=ft.Image(
-            src="G:/SIH/frontend/takeoff airplane.png",
+            src="takeoff airplane.png",
             width=200,
             height=200
     )
@@ -284,4 +284,4 @@ def GUI(win: ft.Page):
     )
         
 
-ft.run(GUI)
+ft.run(GUI,assets_dir="assets")
