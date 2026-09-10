@@ -148,7 +148,16 @@ class SpiceJetSource(FareSource):
                 print(f"[spicejet] {response.status_code} — refreshing token")
                 self._session.headers["authorization"] = \
                     self._obtain_token(force=True)
-                return self.fetch(origin, destination, departure_date)
+                try:
+                    result = self.fetch(origin, destination, departure_date)
+                finally:
+                    # Clear the flag so a LATER expiry in the same run is
+                    # also tolerated. A 60-cell run outlives most token
+                    # lifetimes, so one refresh per run is not enough — the
+                    # one-shot guard exists to stop an infinite loop on a
+                    # permanently bad credential, not to ration refreshes.
+                    self._token_refreshed = False
+                return result
             raise FareSourceError(
                 f"spicejet returned {response.status_code} even after "
                 f"refreshing the token."

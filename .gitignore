@@ -59,3 +59,11 @@ data/apix_by_series.csv
 
 # Debug artefacts from failed scraping attempts.
 data/*_form.png
+
+# Internal team material and empty scaffold folders — untracked
+# deliberately, listed here so `git add -A` cannot pull them back in.
+TASKS.md
+backtest/
+charts/
+clean/
+index/

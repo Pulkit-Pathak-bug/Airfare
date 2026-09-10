@@ -166,6 +166,24 @@ def gather() -> dict:
                 "last": pd.Timestamp(last).date(),
             }
 
+    # Which day of the week each window actually landed on, by collection
+    # date. A fixed advance-purchase window with a rolling departure date
+    # advances the departure weekday by one per collection day, so a short
+    # series carries a day-of-week composition effect. Computed here rather
+    # than asserted, because it is a limitation the numbers have to support.
+    dow = None
+    try:
+        d = df.copy()
+        d["dep"] = pd.to_datetime(d.departure_date)
+        first = (d.groupby(["collection_date", "advance_window_days"])
+                  .dep.first().reset_index())
+        first["dow"] = first.dep.dt.day_name().str[:3]
+        dow = first.pivot(index="advance_window_days",
+                          columns="collection_date", values="dow")
+        dow.columns = [pd.Timestamp(c).date().isoformat() for c in dow.columns]
+    except Exception as exc:                                 # noqa: BLE001
+        print(f"[methodology] day-of-week table unavailable: {exc}")
+
     # Computed, not asserted — see fareindex/continuity_demo.py.
     try:
         from fareindex.continuity_demo import run as continuity_run
@@ -176,7 +194,7 @@ def gather() -> dict:
 
     return {
         "df": df, "spans": spans, "continuous": continuous, "late": late,
-        "demo": demo,
+        "demo": demo, "dow": dow,
         "daily": daily, "weekly": weekly, "monthly": monthly, "meta": meta,
         "weights": weights, "weight_source": weight_source,
         "prices": prices, "worked": worked,
@@ -563,6 +581,23 @@ prototype.</p>
 </div>"""
 
     # ============================================================== page 5
+    dow_table = ""
+    if f.get("dow") is not None and not f["dow"].empty:
+        dw = f["dow"]
+        dow_table = table(
+            ["Window"] + list(dw.columns),
+            [[f"T+{idx}"] + [esc(v) for v in row]
+             for idx, row in zip(dw.index, dw.values)])
+        weekend = sum(1 for v in dw.iloc[:, -1] if v in ("Fri", "Sat", "Sun"))
+        if weekend:
+            dow_table += (
+                f"<p>On the latest collection date, <strong>{weekend} of "
+                f"{len(dw)} windows</strong> fell on a Friday, Saturday or "
+                f"Sunday. Weekend departures price differently from midweek "
+                f"ones, so part of any movement between the first and latest "
+                f"collection date is this rotation rather than a change in "
+                f"price.</p>")
+
     p5 = f"""
 <div class="page">
 <h2>11. Limitations</h2>
@@ -577,7 +612,20 @@ question is open in the literature, not settled. This is the structural limit
 of the whole approach, and it is not closed by collecting more data &mdash;
 only by access to booking data.</p>
 
-<h3>11.2 The shortest window has no precedent</h3>
+<h3>11.2 The departure weekday rotates with the collection date</h3>
+<p>A window is a fixed number of days before departure, and the collection
+date advances one day at a time &mdash; so the <em>weekday</em> a window lands
+on advances with it. Over a short series that is a composition effect, not a
+price movement, and it takes a full week before it washes out.</p>
+{dow_table}
+<p>This is not a defect in the design; it is inherent to any fixed
+advance-purchase grid, and official practice deals with it by collecting over
+periods long enough for the weekday cycle to complete. It does mean that a
+day-to-day change in this index, at this series length, cannot be read as
+inflation. It is stated here because it is the first thing that should be
+checked before any movement in the series is attributed to prices.</p>
+
+<h3>11.3 The shortest window has no precedent</h3>
 <p>Every official lead-time grid located begins no closer than two days before
 departure: ONS at one month, the CPI Manual at one month, Eurostat's scraped
 rail example at two days. Sampling one day before departure captures
@@ -586,7 +634,7 @@ advance-purchase fares. The window is specified by the problem statement and is
 implemented as specified, but it should not be described as standard
 practice.</p>
 
-<h3>11.3 A single fare per cell, not a fare-class structure</h3>
+<h3>11.4 A single fare per cell, not a fare-class structure</h3>
 <p>The CPI Manual recommends collecting several fare classes per lead time
 &mdash; &ldquo;a full economy fare and a typical discounted economy fare&rdquo;
 &mdash; precisely because under yield management the cheapest available fare
@@ -594,12 +642,12 @@ moves with unsold inventory as well as with price. Taking one fare per cell
 conflates the two. This is a prototype simplification and a known divergence
 from the standard.</p>
 
-<h3>11.4 Carry-forward imputation</h3>
+<h3>11.5 Carry-forward imputation</h3>
 <p>Weaker than the Manual's category-movement rule, as set out in section 6.
 Carried cells are counted and published so the reader can judge how much of any
 given day's value is imputed.</p>
 
-<h3>11.5 Series length</h3>
+<h3>11.6 Series length</h3>
 <p>The index is short, because airfare history cannot be backfilled &mdash;
 a price that existed yesterday is unobtainable today. The methodology, the
 schedule and the outputs are complete and would produce a long series given
@@ -607,12 +655,12 @@ time; only time is missing. Index values over a handful of days should be read
 as a demonstration that the machinery works, not as a finding about Indian
 airfares.</p>
 
-<h3>11.6 Carrier coverage</h3>
+<h3>11.7 Carrier coverage</h3>
 <p>Two carriers, not the full market. Section 10 states which and why. The
 adapter architecture means additional carriers are additive, not structural,
 work.</p>
 
-<h3>11.7 Fixed base, not a multilateral index</h3>
+<h3>11.8 Fixed base, not a multilateral index</h3>
 <p>The web-scraped-price literature increasingly favours multilateral methods
 (GEKS-type) because scraped samples churn and a fixed base drifts out of
 representativeness. Fixed-weight Laspeyres was chosen instead because it is
@@ -620,7 +668,7 @@ what the intended consumer already uses and because ONS itself uses fixed
 weights for the airfares aggregation specifically. This is a defensible choice
 between two literatures that pull in different directions, not an oversight.</p>
 
-<h3>11.8 A scraped headline airfare index is not established practice</h3>
+<h3>11.9 A scraped headline airfare index is not established practice</h3>
 <p>No major statistical office was found to have moved its published headline
 airfare component onto web-scraped collection. Australia's statistical office
 scrapes in production but explicitly excludes airfares; the UK's scraping

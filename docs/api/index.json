@@ -9,7 +9,7 @@
       "MAA-DEL": 4
     },
     "weight_source": "DGCA passenger traffic",
-    "collection_days": 2,
+    "collection_days": 3,
     "cells_carried_forward": 3,
     "formula": "Laspeyres, fixed base-period weights, cheapest fare per cell",
     "series": "headline",
@@ -33,19 +33,24 @@
       "date": "2026-09-09",
       "value": 99.97,
       "cells": 57
+    },
+    {
+      "date": "2026-09-10",
+      "value": 106.97,
+      "cells": 57
     }
   ],
   "weekly": [
     {
       "week_ending": "2026-09-13",
-      "value": 99.98,
+      "value": 102.31,
       "partial": true
     }
   ],
   "monthly": [
     {
       "month": "2026-09-01",
-      "value": 99.98,
+      "value": 102.31,
       "partial": true
     }
   ],
@@ -54,15 +59,10 @@
       "methodology": {
         "base_period": "2026-09-10",
         "base_value": 100.0,
-        "basket_cells": 17,
+        "basket_cells": 57,
         "routes_short_of_full_windows": {
-          "BLR-BOM": 1,
-          "BLR-DEL": 1,
-          "BOM-BLR": 1,
-          "BOM-DEL": 4,
-          "CCU-DEL": 2,
-          "DEL-BLR": 1,
-          "DEL-CCU": 2
+          "DEL-MAA": 3,
+          "MAA-DEL": 4
         },
         "weight_source": "DGCA passenger traffic",
         "collection_days": 1,
@@ -79,7 +79,7 @@
         {
           "date": "2026-09-10",
           "value": 100.0,
-          "cells": 17
+          "cells": 57
         }
       ]
     },
@@ -93,7 +93,7 @@
           "MAA-DEL": 4
         },
         "weight_source": "DGCA passenger traffic",
-        "collection_days": 2,
+        "collection_days": 3,
         "cells_carried_forward": 3,
         "formula": "Laspeyres, fixed base-period weights, cheapest fare per cell",
         "series": "akasa",
@@ -110,6 +110,11 @@
         {
           "date": "2026-09-09",
           "value": 99.97,
+          "cells": 57
+        },
+        {
+          "date": "2026-09-10",
+          "value": 106.97,
           "cells": 57
         }
       ]

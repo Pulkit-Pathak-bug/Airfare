@@ -1,4 +1,4 @@
-"""IndiGo via a real browser — the version that actually survives Akamai.
+"""IndiGo via a real browser — ATTEMPTED, AND CLOSED. See STATUS below.
 
 WHY THIS EXISTS
 
@@ -16,11 +16,22 @@ fetch(). The browser attaches its own cookies, presents its own TLS
 fingerprint, and reads the bearer token out of its own auth_token cookie.
 Nothing is copied by hand, and nothing expires between runs.
 
-This is also what makes the collector schedulable, which the problem
-statement explicitly requires. And it is the answer to the PS clause about
-handling "JavaScript-rendered pages, anti-bot measures and session
-management" — we handle them by running a browser session properly rather
-than pretending to be one.
+STATUS: THIS SOURCE DOES NOT WORK, AND THE PARAGRAPH ABOVE EXPLAINS WHY IT
+WAS EXPECTED TO. Instrumenting a completed search — banner dismissed, form
+driven, results page rendered, 111 cookies set — showed that NO request
+IndiGo makes carries an Authorization header at all, and no auth_token
+cookie is ever set. The flow is authenticated by session cookie, so there
+is no token to capture and the whole strategy above cannot apply here. The
+only viable route would be the SpiceJet pattern (let the page make its own
+call and read the response), which needs the search re-run per cell because
+the results page carries no state in its URL. Left in the tree as the
+record of a documented exclusion, not as a working adapter.
+
+The browser-session approach itself is sound and IS what makes the working
+sources schedulable — see token_broker.py and spicejet_browser.py, which
+answer the PS clause about "JavaScript-rendered pages, anti-bot measures
+and session management". It simply cannot be applied to a portal that
+issues no token.
 
 SETUP (once)
 

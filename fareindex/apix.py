@@ -160,13 +160,20 @@ def build_index(df: pd.DataFrame):
     """Return (daily_index_df, meta). Daily has columns date, apix, cells."""
     prices = cell_prices(df)
     if prices.empty:
-        return pd.DataFrame(columns=["date", "apix", "cells"]), {}
+        return pd.DataFrame(columns=["date", "apix", "cells",
+                                     "carried_forward"]), {}
 
     dates = sorted(prices.collection_date.unique())
     base_date = dates[0]
 
     base = (prices[prices.collection_date == base_date]
             .set_index(["route", "advance_window_days"]).price)
+    # An unusable base price is not a basket cell. Dropping it here rather
+    # than skipping it later matters: cells_per_route is built from this
+    # index, so counting a cell that can never contribute a relative would
+    # divide the route's weight by one too many and quietly hand the
+    # shortfall to other routes for the life of the series.
+    base = base[base > 0]
 
     routes = sorted(prices.route.unique())
     weights, weight_source = route_weights(routes)
@@ -220,7 +227,12 @@ def build_index(df: pd.DataFrame):
                      "cells": len(series),
                      "carried_forward": carried})
 
-    daily = pd.DataFrame(rows)
+    # Explicit columns, so an empty result always has the documented
+    # schema whatever the reason it is empty — otherwise write_outputs
+    # emits a CSV with no header row at all and a consumer expecting
+    # date,apix,cells,carried_forward breaks on a file it cannot read.
+    daily = pd.DataFrame(rows, columns=["date", "apix", "cells",
+                                        "carried_forward"])
     meta = {
         "base_period": pd.Timestamp(base_date).date().isoformat(),
         "base_value": BASE_VALUE,
@@ -228,9 +240,13 @@ def build_index(df: pd.DataFrame):
         # Cells absent on the base date can never join a fixed-weight
         # basket, so say how many are missing rather than letting the
         # basket quietly be smaller than the grid.
+        # Iterated over every route in the data, not just those that made
+        # it into the basket — a route with ZERO usable cells on the base
+        # date is the worst case and would otherwise be invisible here,
+        # because it never becomes a key in cells_per_route at all.
         "routes_short_of_full_windows": {
-            route: int(n) for route, n in sorted(cells_per_route.items())
-            if n < len(WINDOWS)
+            route: int(cells_per_route.get(route, 0)) for route in routes
+            if cells_per_route.get(route, 0) < len(WINDOWS)
         },
         "weight_source": weight_source,
         "collection_days": len(daily),

@@ -159,7 +159,16 @@ class AkasaSource(FareSource):
                         self._obtain_token(force=True)
                 except FareSourceError:
                     raise
-                return self.fetch(origin, destination, departure_date)
+                try:
+                    return self.fetch(origin, destination, departure_date)
+                finally:
+                    # Clear the flag so a LATER expiry in the same run is
+                    # tolerated too. The one-shot guard exists to stop an
+                    # infinite loop on a permanently bad credential, not to
+                    # ration refreshes — and as the comment above says, a
+                    # 60-cell run outlives most token lifetimes, so more
+                    # than one expiry per run is entirely normal.
+                    self._token_refreshed = False
             raise FareSourceError(
                 f"akasa returned {response.status_code} even after "
                 f"refreshing the token. Capture one by hand into "
@@ -238,6 +247,19 @@ class AkasaSource(FareSource):
                         # the index, so only the exact pair is kept.
                         if (des.get("origin") != origin
                                 or des.get("destination") != destination):
+                            continue
+
+                        # Same reasoning, one axis over: keep only the date
+                        # that was asked for. The stored departure_date is
+                        # the REQUESTED one, so a journey returned for a
+                        # neighbouring day — an overnight positioning leg,
+                        # or a response that spans dates — would be filed
+                        # against the wrong advance-purchase window and
+                        # silently corrupt the index rather than error.
+                        # spicejet.py guards this explicitly; so does this.
+                        departed = str(des.get("departure") or "")
+                        if departed and not departed.startswith(
+                                departure_date.isoformat()):
                             continue
 
                         depart_time = None

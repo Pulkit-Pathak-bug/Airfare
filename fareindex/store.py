@@ -50,10 +50,24 @@ CREATE TABLE IF NOT EXISTS fares (
     raw_json             TEXT
 );
 
+-- What makes two offers the SAME offer. INSERT OR IGNORE then makes the
+-- collector idempotent: a re-run repairs a partial day instead of
+-- duplicating it.
+--
+-- fare_class is part of the key. Without it, two genuinely different fare
+-- families on the same flight at the same price collapse into one row —
+-- a real offer silently dropped rather than a duplicate caught. (On the
+-- data collected so far this never fired: AV and EC are never priced
+-- identically on the same flight, so no existing row was lost.)
+--
+-- Every nullable column is COALESCEd because in SQL NULL is not equal to
+-- NULL: two rows that both have a null flight number would not collide,
+-- and the constraint would silently do nothing.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_fares_offer ON fares (
     origin, destination, departure_date, collection_date,
     source_portal, COALESCE(carrier, ''), COALESCE(flight_number, ''),
-    COALESCE(depart_time_local, ''), total_fare_inr
+    COALESCE(depart_time_local, ''), COALESCE(fare_class, ''),
+    total_fare_inr
 );
 
 CREATE INDEX IF NOT EXISTS ix_fares_axis
@@ -93,6 +107,35 @@ CREATE TABLE IF NOT EXISTS runs (
 """
 
 
+def _migrate_offer_index(conn: sqlite3.Connection) -> None:
+    """Bring an older database's uniqueness rule up to the current one.
+
+    CREATE UNIQUE INDEX IF NOT EXISTS does NOT replace an index that
+    already exists under that name, so a database created before
+    fare_class joined the key would keep enforcing the old rule for ever,
+    silently, with the schema in this file saying otherwise. That is worse
+    than the original defect: the code and the data disagree and nothing
+    says so.
+
+    Recreating is safe in this direction. The new key has strictly more
+    columns, so it is a weaker constraint — every row that satisfied the
+    old index satisfies the new one, and the rebuild cannot fail on
+    existing data.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='index' "
+        "AND name='ux_fares_offer'").fetchone()
+    if row is None or row[0] is None:
+        return
+    if "fare_class" in row[0]:
+        return                                  # already current
+    conn.execute("DROP INDEX ux_fares_offer")
+    conn.executescript(SCHEMA)                  # recreates it, current
+    conn.commit()
+    print("[store] upgraded ux_fares_offer to include fare_class "
+          "(older databases enforced a coarser rule)")
+
+
 @contextmanager
 def connect(db_path: str):
     conn = sqlite3.connect(db_path)
@@ -100,6 +143,7 @@ def connect(db_path: str):
     try:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(SCHEMA)
+        _migrate_offer_index(conn)
         yield conn
         conn.commit()
     finally:

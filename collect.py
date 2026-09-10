@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from dataclasses import replace
 from datetime import date, timedelta
 
 from fareindex import config, store
@@ -79,55 +80,108 @@ def run(source_name: str, thin: bool, db_path: str, limit: int | None) -> int:
         log.info("run %s | source=%s | %d cells | %s",
                  run_id, source.name, len(cells), collection_date)
 
-        for origin, destination, window in cells:
-            departure_date = collection_date + timedelta(days=window)
-            attempted += 1
+        # The whole loop sits inside this try. Putting finish_run and
+        # source.close() *after* the loop was not enough — that is
+        # sequential code, reached only when the loop ends normally, so
+        # anything escaping a cell still leaked the browser and lost the
+        # run row. Only a try/finally that WRAPS the loop actually keeps
+        # that promise.
+        try:
+            for origin, destination, window in cells:
+                departure_date = collection_date + timedelta(days=window)
+                attempted += 1
 
-            def observe(status, n=0, detail=None):
-                store.record_observation(
-                    conn, run_id, origin, destination, departure_date,
-                    collection_date, source.name, status, n, detail)
+                def observe(status, n=0, detail=None):
+                    # Recording an observation must never end the run. It
+                    # writes to the same SQLite file the dashboard may be
+                    # reading, so "database is locked" is a real
+                    # possibility — and this is called from inside the
+                    # handlers that exist to isolate a failing cell.
+                    try:
+                        store.record_observation(
+                            conn, run_id, origin, destination,
+                            departure_date, collection_date, source.name,
+                            status, n, detail)
+                    except Exception as exc:            # noqa: BLE001
+                        log.warning("could not record observation for "
+                                    "%s-%s T+%d: %s",
+                                    origin, destination, window, exc)
 
-            try:
-                offers = source.fetch(origin, destination, departure_date)
-            except FareSourceError as exc:
-                failed += 1
-                observe("error", detail=str(exc)[:500])
-                log.error("FAIL %s-%s T+%-3d %s", origin, destination,
-                          window, exc)
-                continue
-            except Exception as exc:                    # noqa: BLE001
-                failed += 1
-                observe("error", detail=repr(exc)[:500])
-                log.exception("FAIL %s-%s T+%-3d unexpected: %s",
+                try:
+                    offers = source.fetch(origin, destination,
+                                          departure_date)
+                except FareSourceError as exc:
+                    failed += 1
+                    observe("error", detail=str(exc)[:500])
+                    log.error("FAIL %s-%s T+%-3d %s", origin, destination,
+                              window, exc)
+                    continue
+                except Exception as exc:                # noqa: BLE001
+                    failed += 1
+                    observe("error", detail=repr(exc)[:500])
+                    log.exception("FAIL %s-%s T+%-3d unexpected: %s",
+                                  origin, destination, window, exc)
+                    continue
+
+                # Stamp the run's collection date onto every offer. Each
+                # parser calls date.today() for itself, so a run that
+                # straddles local midnight would store offers dated a day
+                # later than the run — disagreeing with the observations
+                # row for the same cell and landing in the wrong day's
+                # index bucket. departure_date is untouched, so the window
+                # recomputes correctly. Guarded, because a source that
+                # returns something that is not a FareOffer must cost one
+                # cell rather than the whole day.
+                try:
+                    offers = [o if o.collection_date == collection_date
+                              else replace(o,
+                                           collection_date=collection_date)
+                              for o in offers]
+                except Exception as exc:                # noqa: BLE001
+                    failed += 1
+                    observe("error",
+                            detail=f"bad offer object: {exc!r}"[:500])
+                    log.error("FAIL %s-%s T+%-3d  source returned something "
+                              "that is not a FareOffer: %s",
                               origin, destination, window, exc)
-                continue
+                    continue
 
-            # Writing is inside its own guard for the same reason fetching
-            # is. write_offers() calls validate() on every offer, which
-            # raises on a fare a portal can legitimately send — a negative
-            # fee component, say. Left unguarded, one such fare from cell 6
-            # would abort the process and lose the remaining 54 cells, and
-            # a collection date cannot be recollected tomorrow.
+                # write_offers() calls validate() on every offer, which
+                # raises on a fare a portal can legitimately send — a
+                # negative fee component, say. Unguarded, one such fare
+                # from cell 6 would lose the remaining 54, and a
+                # collection date cannot be recollected tomorrow.
+                try:
+                    n = store.write_offers(conn, offers, run_id)
+                except Exception as exc:                # noqa: BLE001
+                    failed += 1
+                    observe("error", detail=f"write failed: {exc!r}"[:500])
+                    log.error("FAIL %s-%s T+%-3d  could not store %d "
+                              "offers: %s", origin, destination, window,
+                              len(offers), exc)
+                    continue
+
+                ok += 1
+                written += n
+                # An empty cell is data: sold out, cancelled, no service.
+                observe("ok" if offers else "empty", len(offers))
+                log.info("%-5s %s-%s T+%-3d  %2d offers, %2d new",
+                         "ok" if offers else "EMPTY", origin, destination,
+                         window, len(offers), n)
+
+        finally:
+            # A source left open leaks a chromium process; a missing run
+            # row loses the evidence that the day executed at all. Both
+            # happen whatever else went wrong.
             try:
-                n = store.write_offers(conn, offers, run_id)
+                store.finish_run(conn, run_id, attempted, ok, failed,
+                                 written)
             except Exception as exc:                    # noqa: BLE001
-                failed += 1
-                observe("error", detail=f"write failed: {exc!r}"[:500])
-                log.error("FAIL %s-%s T+%-3d  could not store %d offers: %s",
-                          origin, destination, window, len(offers), exc)
-                continue
-
-            ok += 1
-            written += n
-            # An empty cell is data: sold out, cancelled, or no service.
-            observe("ok" if offers else "empty", len(offers))
-            log.info("%-5s %s-%s T+%-3d  %2d offers, %2d new",
-                     "ok" if offers else "EMPTY", origin, destination,
-                     window, len(offers), n)
-
-        store.finish_run(conn, run_id, attempted, ok, failed, written)
-        source.close()
+                log.warning("could not finish run row: %s", exc)
+            try:
+                source.close()
+            except Exception as exc:                    # noqa: BLE001
+                log.warning("source did not close cleanly: %s", exc)
 
     log.info("done | cells %d/%d ok | %d offers written", ok, attempted, written)
     if ok == 0:

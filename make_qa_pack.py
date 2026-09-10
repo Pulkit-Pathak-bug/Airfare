@@ -21,6 +21,8 @@ import os
 import sys
 from datetime import date
 
+import pandas as pd
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from docgen import document, esc, qa, render, table  # noqa: E402
@@ -45,6 +47,38 @@ def live() -> dict:
                    base=meta.get("base_period"),
                    latest=(None if daily.empty
                            else float(daily.apix.iloc[-1])))
+
+        # The spread of individual cell moves, and the biggest mover, both
+        # computed. These were once hand-typed and went stale within a day
+        # — which is exactly what this pack promises it will not do.
+        from fareindex.apix import cell_prices, route_weights
+        prices = cell_prices(df[df.source_portal.isin(cont)])
+        days = sorted(prices.collection_date.unique())
+        if len(days) >= 2:
+            first = prices[prices.collection_date == days[0]].set_index(
+                ["route", "advance_window_days"]).price
+            last = prices[prices.collection_date == days[-1]].set_index(
+                ["route", "advance_window_days"]).price
+            both = pd.concat([first.rename("a"), last.rename("b")],
+                             axis=1).dropna()
+            both = both[both.a > 0]
+            rel = both.b / both.a
+            cell = (rel - 1).abs().idxmax()
+            wt, _src = route_weights(sorted(prices.route.unique()))
+            top4 = wt.sort_values(ascending=False).head(4)
+            out.update(
+                move_lo=(rel.min() - 1) * 100,
+                move_hi=(rel.max() - 1) * 100,
+                move_median=(rel.median() - 1) * 100,
+                risers=int((rel > 1).sum()), cells=int(len(rel)),
+                mover_route=cell[0], mover_window=int(cell[1]),
+                mover_from=float(both.loc[cell].a),
+                mover_to=float(both.loc[cell].b),
+                mover_pct=(float(rel.loc[cell]) - 1) * 100,
+                heavy=list(top4.index), heavy_share=float(top4.sum()) * 100,
+                index_move=(out["latest"] / 100 - 1) * 100
+                if out["latest"] else None,
+            )
     except Exception as exc:                                 # noqa: BLE001
         print(f"[qa] could not read the data store ({exc}); "
               f"figures left blank.")
@@ -55,6 +89,35 @@ def build(f: dict) -> str:
     today = date.today().isoformat()
     src = ", ".join(f["sources"]) or "—"
     latest = f"{f['latest']:.2f}" if f["latest"] is not None else "—"
+
+    # Sentences assembled from the live figures. Every number a judge might
+    # check is computed here rather than typed into the prose below.
+    if "move_lo" in f:
+        spread = (
+            f"Between the base period and the latest collection, individual "
+            f"cells moved from {f['move_lo']:+.1f}% to {f['move_hi']:+.1f}%, "
+            f"the median cell moved {f['move_median']:+.1f}%, and "
+            f"{f['risers']} of {f['cells']} cells rose &mdash; while the "
+            f"index moved {f['index_move']:+.2f}%.")
+        mover = (
+            f"the biggest single move was {esc(f['mover_route'])} at "
+            f"T+{f['mover_window']}, where the cheapest fare went from "
+            f"&#8377;{f['mover_from']:,.0f} to &#8377;{f['mover_to']:,.0f} "
+            f"({f['mover_pct']:+.0f}%) as cheap seats sold out.")
+        median_note = (
+            f"Note also that the median cell moved only "
+            f"{f['move_median']:+.1f}%. The index rose because the movement "
+            f"was concentrated on heavily weighted routes and short windows, "
+            f"which is the index doing its job.")
+        heavy = (
+            f"Our four heaviest routes ({esc(', '.join(f['heavy']))}) carry "
+            f"{f['heavy_share']:.0f}% of the basket, and that is where the "
+            f"movement was.")
+    else:
+        spread = mover = median_note = heavy = (
+            "(computed once at least two collection days exist)")
+    _fill = dict(spread=spread, mover=mover, median_note=median_note,
+                 heavy=heavy)
 
     # ------------------------------------------------------------ cover
     cover = f"""
@@ -213,15 +276,44 @@ day{'s' if f['days'] != 1 else ''}, sources {esc(src)}, base period
            "other routes in the same category. Ours is cruder and we say so. "
            "It is a known divergence, not an oversight."),
         qa("How do I know your index isn't just noise?",
-           "Look at what it does. On our data, individual cells moved between "
-           "roughly &minus;20% and +39% while the index moved a fraction of a "
-           "percent. That is the index doing its job: it separates a market-"
-           "wide price movement from the churn of individual fares. An "
-           "average of the raw fares would have swung wildly and meant "
-           "nothing.",
+           "Look at the spread it sits on. {spread} The index is a weighted "
+           "basket, so it separates a market-wide movement from the churn of "
+           "individual fares; an average of the raw fares would swing with "
+           "whichever cell happened to move most and mean nothing.",
            S3,
-           "This is the single best argument for why an index is needed rather "
-           "than a mean, and it comes straight out of our own data."),
+           "These figures are computed when this pack is built, not typed "
+           "in &mdash; run it again after the next collection and they "
+           "update."),
+        qa("Your index jumped several percent in one day. Are Indian "
+           "airfares really moving that fast?",
+           "Part of it is real and part of it is our sampling, and we can "
+           "separate them. The real part is inventory: {mover} The part "
+           "that is not price is the weekday rotation "
+           "&mdash; see the next question. At three days of data we would "
+           "not present any movement as inflation.",
+           S3,
+           "{median_note}"),
+        qa("Your median cell didn't move. Why is the index up?",
+           "Because an index measures the cost of a weighted basket, not "
+           "the typical cell. {heavy} A simple average "
+           "across cells would have shown almost nothing and would have "
+           "been the wrong answer &mdash; it would weight a thin sector the "
+           "same as DEL&ndash;BOM.",
+           S3),
+        qa("Doesn't the departure day of the week shift as you collect?",
+           "Yes, and it is limitation 11.2 in our methodology document. A "
+           "window is a fixed number of days before departure and the "
+           "collection date advances daily, so the departure weekday "
+           "advances with it. On our latest collection date four of the "
+           "five windows had rotated onto a Friday, Saturday or Sunday, and "
+           "weekend departures price differently. It washes out over a full "
+           "week; below that, a movement cannot be attributed to price "
+           "without checking this first.",
+           S6,
+           "We found this in our own series rather than being told it. It "
+           "is inherent to any fixed advance-purchase grid, and official "
+           "practice handles it by collecting over periods long enough for "
+           "the weekday cycle to complete."),
         qa("Explain your two date fields.",
            "Collection date is when we saw the price; departure date is when "
            "the flight leaves. The window is the difference. Collection date "
@@ -348,11 +440,13 @@ day{'s' if f['days'] != 1 else ''}, sources {esc(src)}, base period
            "we excluded that portal. That is the test we applied."),
         qa("How do you authenticate to these APIs?",
            "The portals issue short-lived tokens to their own front end. A "
-           "browser opens the site, the site mints its token normally, and we "
-           "read it off the traffic. The browser is used only for "
-           "authentication; all 60 cells then go over plain HTTP, which is far "
-           "faster than driving a browser 60 times. Nothing is typed in by "
-           "hand, which is what makes daily scheduling possible.",
+           "browser opens the site once per run, the site mints its token "
+           "normally, we read it off the traffic, and the 60 cells then go "
+           "over plain HTTP &mdash; far faster than driving a browser 60 "
+           "times. Where a portal issues no token and refuses plain HTTP we "
+           "fall back to loading its own search page per cell, which is "
+           "slower and used only where it has to be. Nothing is typed in by "
+           "hand either way, which is what makes daily scheduling possible.",
            S4),
         qa("How do you know the fares you store are correct?",
            "Two ways. The parsers were written against real captured "
@@ -532,6 +626,8 @@ worth being able to state from memory:</p>
 <ol>
 <li><strong>Advertised, not transacted.</strong> Structural. Closes only with
 booking data.</li>
+<li><strong>The departure weekday rotates</strong> with the collection date, so
+a short series carries a day-of-week effect that is not a price movement.</li>
 <li><strong>T+1 has no precedent</strong> in any official lead-time grid.
 Implemented because the problem statement specifies it.</li>
 <li><strong>One fare per cell</strong>, where the CPI Manual wants a fare-class
@@ -573,6 +669,7 @@ for routes. Additive by design.</li>
 </ul>
 """
 
+    b = b.format(**_fill)
     return document("APIx — Defence pack", [cover, a, b, c, d, e, fsec, g, h])
 
 

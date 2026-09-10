@@ -72,10 +72,14 @@ SITES: Dict[str, dict] = {
         # directly it has no search state, shows "No Data Found" and
         # bounces to the home page without minting anything.
         "follow_ups": [],
-        # IndiGo puts its bearer token in a cookie rather than only on the
-        # wire. Playwright's context API can read HttpOnly cookies, which
-        # document.cookie cannot — that is why earlier attempts to scrape
-        # the cookie from inside the page came up empty.
+        # SUPERSEDED — kept only so the cookie path stays exercised. A
+        # context-level sniffer that accepted ANY host and ANY
+        # Authorization header watched a full IndiGo search complete
+        # (results rendered, 111 cookies set) and reported: "no request
+        # anywhere carried an Authorization header". IndiGo's web booking
+        # flow is SESSION-COOKIE authenticated; there is no bearer token
+        # to capture, and no auth_token cookie appears. Do not restart
+        # this on the assumption that one exists.
         "cookie_names": ["auth_token"],
         "ttl_seconds": 600,
     },

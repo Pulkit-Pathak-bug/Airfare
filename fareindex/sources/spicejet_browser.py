@@ -28,9 +28,11 @@ though headless shells are more detectable and it may start failing.
 from __future__ import annotations
 
 import os
+import time
 from datetime import date
 from typing import List, Optional
 
+from ..config import REQUEST_DELAY_SECONDS
 from ..model import FareOffer
 from .base import FareSource, FareSourceError
 from .spicejet import SpiceJetSource
@@ -90,6 +92,12 @@ class SpiceJetBrowserSource(FareSource):
     def fetch(self, origin: str, destination: str,
               departure_date: date) -> List[FareOffer]:
         url = SpiceJetSource._referer(origin, destination, departure_date)
+
+        # The same politeness delay the plain-HTTP sources apply. It was
+        # missing here, which made the compliance claim ("requests are
+        # spaced by a fixed delay") untrue of the one SpiceJet path that
+        # actually runs. Page-load latency is not a rate limit.
+        time.sleep(REQUEST_DELAY_SECONDS)
 
         try:
             # Wait for the page's own call to the fare API, rather than

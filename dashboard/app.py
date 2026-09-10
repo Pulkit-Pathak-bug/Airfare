@@ -25,12 +25,16 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fareindex.apix import (EXPORT_CSV, build_index,  # noqa: E402
+from fareindex.apix import (EXPORT_CSV, ROUTE_WEIGHTS_CSV,  # noqa: E402
+                            build_index,
                             cell_prices, load_fares, resample, source_spans,
                             split_sources)
 from fareindex.config import ROUTES, WINDOWS  # noqa: E402
 
 GRID_CELLS = len(ROUTES) * len(WINDOWS)
+
+# Label for a fare with no class from the portal. Not a class — an absence.
+UNDISCLOSED = "class not disclosed"
 
 # Validated palette (see the data-viz reference instance). Categorical
 # slots 1 and 2 clear every CVD and normal-vision gate as a pair; the
@@ -63,18 +67,22 @@ def chart_base(chart):
 
 
 @st.cache_data
-def load(path: str, mtime: float):
+def load(path: str, mtimes: tuple):
     """Load and index the store.
 
-    `mtime` is not used in the body — it is here to be part of the cache
-    key. Streamlit caches on the arguments, so caching on the path alone
+    `mtimes` is not used in the body — it is here to be part of the
+    cache key. Streamlit caches on the arguments, so caching on the path alone
     would keep serving the first load for the life of the process: run a
     fresh collection during a demo and the page would show yesterday's
     numbers while insisting they were current. Passing the file's
     modification time makes a rewritten file a cache miss.
     """
     df = load_fares(path)
-    df["fare_class"] = df.fare_class.fillna("—")
+    # Not every portal discloses a fare class. SpiceJet's endpoint is a
+    # low-fare calendar: it returns a price for a date and nothing else.
+    # Those rows are labelled for what they are rather than with a dash,
+    # which reads like a class called "—" and quietly invents a category.
+    df["fare_class"] = df.fare_class.fillna(UNDISCLOSED)
 
     # The headline index uses only sources collecting since day one. A
     # source that joins later makes its cells look cheaper — there is
@@ -112,8 +120,26 @@ if not os.path.exists(EXPORT_CSV):
     )
     st.stop()
 
+def _mtimes() -> tuple:
+    """Every input file's mtime, as part of the cache key.
+
+    Keying on the export alone was not enough: the weights CSV is read
+    deep inside build_index, so editing or adding it changed nothing on
+    screen until the cache was cleared by hand. A presenter who drops the
+    real DGCA weights in minutes before a demo and refreshes the tab would
+    have seen the old weight source reported as current.
+    """
+    out = []
+    for path in (EXPORT_CSV, ROUTE_WEIGHTS_CSV):
+        try:
+            out.append(os.path.getmtime(path))
+        except OSError:
+            out.append(0.0)
+    return tuple(out)
+
+
 df_all, daily, weekly, monthly, meta, by_source, spans = load(
-    EXPORT_CSV, os.path.getmtime(EXPORT_CSV))
+    EXPORT_CSV, _mtimes())
 
 _, refresh = st.columns([6, 1])
 if refresh.button("↻ Reload", help="Re-read the export after a fresh "
@@ -128,19 +154,11 @@ st.caption(
     "grid. Laspeyres index, fixed base-period weights, cheapest fare per cell."
 )
 
-if meta.get("late_sources"):
-    st.info(
-        "**Basket continuity.** The headline index is built from "
-        f"**{', '.join(meta['headline_sources'])}**, which has been "
-        "collecting since the base period. "
-        f"**{', '.join(meta['late_sources'])}** started later; folding it "
-        "into the same series would make cells look cheaper because one "
-        "more airline entered the comparison, not because fares fell. It "
-        "is published as its own series instead "
-        "(`data/apix_by_series.csv`), and an all-sources index re-based to "
-        "the first day every source was running. The source filter below "
-        "changes the fare tables and charts, not the headline index."
-    )
+# The basket-continuity explanation used to sit here as a full-width
+# callout. It pushed the index and the charts below the fold, which is the
+# wrong trade for the one screen a judge actually looks at. The fact is not
+# lost: the "Collection health" expander names each source's basket role,
+# and the "Index by source" chart shows the separated series directly.
 
 # ---------------------------------------------------------------- filters
 routes_all = sorted(df_all.route.unique())
@@ -163,6 +181,23 @@ if source != "all":
 if df.empty:
     st.warning("No fares match those filters.")
     st.stop()
+
+filtered = (len(routes) < len(routes_all) or len(classes) < len(classes_all)
+            or source != "all")
+if filtered:
+    # The headline index is a FIXED basket. Recomputing it from a filtered
+    # subset would not be "the index for these routes" — it would be a
+    # different index on a different basket with a different base. So the
+    # filters move the fare tables and charts and deliberately leave the
+    # index alone; saying so is the difference between a design decision
+    # and a page that looks broken when someone filters it.
+    st.caption(
+        "Filters apply to the fare observations, the lead-time chart, the "
+        "heatmap and the table below. **The APIx figure and the price-trend "
+        "chart are unfiltered by design** — the index is a fixed basket "
+        "with fixed weights, so a subset of it is not a smaller index, it "
+        "is a different one."
+    )
 
 # ------------------------------------------------------------ stat tiles
 latest = daily.iloc[-1] if not daily.empty else None
@@ -221,7 +256,11 @@ else:
         strokeWidth=2, point=alt.OverlayMarkDef(size=90, filled=True),
         color=SERIES[0],
     ).encode(
-        x=alt.X("date:T", title="Collection date"),
+        # A three-point daily series autoscales to hour-of-day ticks,
+        # which makes a once-a-day process look intraday. Pin it to days.
+        x=alt.X("date:T", title="Collection date",
+                axis=alt.Axis(format="%d %b", tickCount={"interval": "day",
+                                                        "step": 1})),
         y=alt.Y("apix:Q", title="APIx (base = 100)",
                 scale=alt.Scale(domain=[lo, hi], zero=False, nice=False)),
         tooltip=[alt.Tooltip("date:T", title="Date"),
@@ -249,7 +288,8 @@ else:
                     hide_index=True)
 
 # ------------------------------------------------------- index by source
-if by_source.series.nunique() > 1 and len(by_source) > by_source.series.nunique():
+_plottable = by_source.groupby("series").size()
+if (_plottable >= 2).sum() >= 1 and by_source.series.nunique() > 1:
     st.subheader("Index by source")
     st.caption(
         "Each source indexed on its own base, which is the only way to "
@@ -257,23 +297,50 @@ if by_source.series.nunique() > 1 and len(by_source) > by_source.series.nunique(
         "series: a source that starts later would make its cells look cheaper "
         "because the cheapest-fare comparison widened, not because fares fell."
     )
-    names = sorted(by_source.series.unique())
-    palette = [SERIES[i % len(SERIES)] for i in range(len(names))]
-    multi = alt.Chart(by_source).mark_line(
-        strokeWidth=2, point=alt.OverlayMarkDef(size=70, filled=True),
-    ).encode(
-        x=alt.X("date:T", title="Collection date"),
-        y=alt.Y("apix:Q", title="Index (each source's own base = 100)",
-                scale=alt.Scale(zero=False, nice=True)),
-        color=alt.Color("series:N", title="Source",
-                        scale=alt.Scale(domain=names, range=palette),
-                        legend=alt.Legend(orient="top-right")),
-        tooltip=[alt.Tooltip("series:N", title="Source"),
-                 alt.Tooltip("date:T", title="Date"),
-                 alt.Tooltip("apix:Q", title="Index", format=".2f")],
-    )
-    st.altair_chart(chart_base(multi.properties(height=260)),
-                    use_container_width=True)
+    # A source with a single collection day sits at exactly 100 by
+    # construction — it IS its own base. Drawn on the same axis as a
+    # multi-day line it reads as "this carrier is cheaper", which is not a
+    # statement the data supports. Plot only series that have moved, and
+    # name the rest.
+    counts = by_source.groupby("series").size()
+    plotted = sorted(counts[counts >= 2].index)
+    single = sorted(counts[counts < 2].index)
+    if single:
+        st.caption(
+            f"{', '.join(single)} has one collection day so far, so its "
+            "index is 100 by definition and is not plotted — a single point "
+            "cannot be compared with a series that has moved."
+        )
+    by_source = by_source[by_source.series.isin(plotted)]
+
+    # With only one plottable series this chart is a duplicate of the price
+    # trend above it. Say why the section is here and skip the picture.
+    if len(plotted) < 2:
+        st.caption(
+            "Only one source has enough history to plot, so this chart is "
+            "held back until a second one does — it would otherwise just "
+            "repeat the headline series above."
+        )
+    if len(plotted) >= 2:
+        names = plotted
+        palette = [SERIES[i % len(SERIES)] for i in range(len(names))]
+        multi = alt.Chart(by_source).mark_line(
+            strokeWidth=2, point=alt.OverlayMarkDef(size=70, filled=True),
+        ).encode(
+            x=alt.X("date:T", title="Collection date",
+                    axis=alt.Axis(format="%d %b", tickCount={"interval": "day",
+                                                            "step": 1})),
+            y=alt.Y("apix:Q", title="Index (each source's own base = 100)",
+                    scale=alt.Scale(zero=False, nice=True)),
+            color=alt.Color("series:N", title="Source",
+                            scale=alt.Scale(domain=names, range=palette),
+                            legend=alt.Legend(orient="top-right")),
+            tooltip=[alt.Tooltip("series:N", title="Source"),
+                     alt.Tooltip("date:T", title="Date"),
+                     alt.Tooltip("apix:Q", title="Index", format=".2f")],
+        )
+        st.altair_chart(chart_base(multi.properties(height=260)),
+                        use_container_width=True)
 
 # ------------------------------------------------------ collection health
 with st.expander("Collection health — what was attempted, and what came back"):
@@ -319,18 +386,48 @@ st.caption(
 # with many fares cannot drag the curve more than a route with few.
 per_cell = (df.groupby(["route", "advance_window_days", "fare_class"],
                        as_index=False).total_fare_inr.min())
-curve = (per_cell.groupby(["advance_window_days", "fare_class"], as_index=False)
-                 .total_fare_inr.median()
-                 .rename(columns={"total_fare_inr": "fare"}))
+grouped = per_cell.groupby(["advance_window_days", "fare_class"])
+curve = grouped.total_fare_inr.median().rename("fare").reset_index()
+curve["cells"] = grouped.total_fare_inr.size().values
 
-n_series = curve.fare_class.nunique()
+# Colour is assigned explicitly rather than by slicing the palette. Two
+# reasons: the categorical palette holds two validated colours, so asking
+# for a third silently reused one and drew two different series in the
+# same blue; and "class not disclosed" is an absence, not a category, so
+# it gets a neutral grey rather than competing for a category colour.
+classes = sorted(curve.fare_class.unique())
+real = [c for c in classes if c != UNDISCLOSED]
+domain, rng = [], []
+for i, cls in enumerate(real):
+    domain.append(cls)
+    rng.append(SERIES[i % len(SERIES)])
+if UNDISCLOSED in classes:
+    domain.append(UNDISCLOSED)
+    rng.append(INK_MUTED)
+
+thin = sorted(set(curve[curve.cells < 4].fare_class)) if "cells" in curve else []
+if thin:
+    st.caption(
+        f"⚠ {', '.join(thin)} rests on very few cells at some windows — "
+        "hover a point to see how many. A series drawn from a handful of "
+        "observations is not an elasticity curve; read it as scattered "
+        "points that happen to be joined."
+    )
+
+n_series = len(classes)
 colour = alt.Color("fare_class:N", title="Fare class",
-                   scale=alt.Scale(range=SERIES[:max(n_series, 1)]),
+                   scale=alt.Scale(domain=domain, range=rng),
                    legend=alt.Legend(orient="top-right") if n_series > 1 else None)
 
-elastic = alt.Chart(curve).mark_line(
-    strokeWidth=2, point=alt.OverlayMarkDef(size=90, filled=True),
-).encode(
+# A series resting on a handful of cells is drawn thin and dashed, so it
+# cannot be mistaken at a glance for the twelve-cell curves beside it. The
+# caption says it; the line weight has to say it too, because nobody reads
+# the caption before they read the picture.
+# Styled per CLASS, not per point: splitting one series into solid and
+# dashed segments would break the line in the middle and read as missing
+# data rather than as a thin sample.
+curve["thin"] = curve.fare_class.isin(thin)
+_enc = dict(
     x=alt.X("advance_window_days:O", title="Days booked before departure",
             axis=alt.Axis(labelAngle=0)),
     y=alt.Y("fare:Q", title="Median cheapest fare (₹)",
@@ -338,8 +435,21 @@ elastic = alt.Chart(curve).mark_line(
     color=colour,
     tooltip=[alt.Tooltip("advance_window_days:O", title="Window (days)"),
              alt.Tooltip("fare_class:N", title="Class"),
-             alt.Tooltip("fare:Q", title="Median cheapest", format=",.0f")],
+             alt.Tooltip("fare:Q", title="Median cheapest", format=",.0f"),
+             alt.Tooltip("cells:Q", title="Cells behind this point")],
 )
+_parts = []
+for is_thin, block in curve.groupby("thin"):
+    if block.empty:
+        continue
+    mark = (dict(strokeWidth=1, strokeDash=[4, 3], opacity=0.8,
+                 point=alt.OverlayMarkDef(size=45, filled=True)) if is_thin
+            else dict(strokeWidth=2,
+                      point=alt.OverlayMarkDef(size=90, filled=True)))
+    _parts.append(alt.Chart(block).mark_line(**mark).encode(**_enc))
+elastic = _parts[0]
+for extra in _parts[1:]:
+    elastic = elastic + extra
 # Direct labels at the right-hand end: identity is never colour alone.
 ends = curve.sort_values("advance_window_days").groupby("fare_class").tail(1)
 labels = alt.Chart(ends).mark_text(

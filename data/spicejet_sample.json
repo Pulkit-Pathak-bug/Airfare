@@ -2,20 +2,10 @@
   "data": {
     "lowFareDateMarkets": [
       {
-        "lowestFareAmount": null,
-        "destination": "BOM",
-        "origin": "DEL",
-        "departureDate": "2026-09-09T00:00:00",
-        "departureDateToShow": "Wed, 09 Sep",
-        "isCurrentDate": false,
-        "isOneDayBehindDate": false,
-        "isOneDayAheadDate": false
-      },
-      {
         "lowestFareAmount": {
-          "fareAmount": 5179,
+          "fareAmount": 7188,
           "farePointAmount": 0,
-          "taxesAndFeesAmount": 1559
+          "taxesAndFeesAmount": 1661
         },
         "destination": "BOM",
         "origin": "DEL",
@@ -27,9 +17,9 @@
       },
       {
         "lowestFareAmount": {
-          "fareAmount": 17192,
+          "fareAmount": 15948,
           "farePointAmount": 0,
-          "taxesAndFeesAmount": 2161
+          "taxesAndFeesAmount": 2099
         },
         "destination": "BOM",
         "origin": "DEL",
@@ -55,9 +45,9 @@
       },
       {
         "lowestFareAmount": {
-          "fareAmount": 14798,
+          "fareAmount": 11852,
           "farePointAmount": 0,
-          "taxesAndFeesAmount": 2041
+          "taxesAndFeesAmount": 1893
         },
         "destination": "BOM",
         "origin": "DEL",
@@ -68,11 +58,7 @@
         "isOneDayAheadDate": false
       },
       {
-        "lowestFareAmount": {
-          "fareAmount": 17192,
-          "farePointAmount": 0,
-          "taxesAndFeesAmount": 2161
-        },
+        "lowestFareAmount": null,
         "destination": "BOM",
         "origin": "DEL",
         "departureDate": "2026-09-14T00:00:00",
@@ -91,6 +77,20 @@
         "origin": "DEL",
         "departureDate": "2026-09-15T00:00:00",
         "departureDateToShow": "Tue, 15 Sep",
+        "isCurrentDate": false,
+        "isOneDayBehindDate": false,
+        "isOneDayAheadDate": false
+      },
+      {
+        "lowestFareAmount": {
+          "fareAmount": 4900,
+          "farePointAmount": 0,
+          "taxesAndFeesAmount": 1547
+        },
+        "destination": "BOM",
+        "origin": "DEL",
+        "departureDate": "2026-09-16T00:00:00",
+        "departureDateToShow": "Wed, 16 Sep",
         "isCurrentDate": false,
         "isOneDayBehindDate": false,
         "isOneDayAheadDate": false
