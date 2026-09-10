@@ -47,3 +47,15 @@ Thumbs.db
 # computed rather than typed.
 docs/*.pdf
 docs/*.html
+
+# Generated index outputs. Rebuilt from data/fares_export.csv by
+# `py -m fareindex.apix`, so they are outputs, not source. The raw fares
+# export IS tracked — it is the one thing that cannot be regenerated,
+# because a collection date cannot be collected again.
+data/apix_daily.csv
+data/apix_weekly.csv
+data/apix_monthly.csv
+data/apix_by_series.csv
+
+# Debug artefacts from failed scraping attempts.
+data/*_form.png
