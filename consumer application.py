@@ -57,6 +57,7 @@ def GUI(win: ft.Page):
         e.control.value=e.selection.value
         win.update()
 
+    win.title="Consumer Application"
     win.window.full_screen=True
     win.bgcolor=ft.Colors.TRANSPARENT
     win.decoration=ft.BoxDecoration(
